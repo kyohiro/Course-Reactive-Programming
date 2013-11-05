@@ -1,4 +1,4 @@
-Functional Reactive Programming with Scala
+Principles of Reactive Programming 
 ===========
 
-Keep track of functional reactive programming with Scala.
+Keep track of assignments of Principles of Reactive Programming course.
