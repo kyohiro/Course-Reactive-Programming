@@ -2,6 +2,8 @@ package simulations
 
 import math.random
 
+case class Room (val row: Int, val col: Int)
+
 class EpidemySimulator extends Simulator {
 
   def randomBelow(i: Int) = (random * i).toInt
@@ -27,7 +29,7 @@ class EpidemySimulator extends Simulator {
 
   import SimConfig._
 
-  case class Room (val row: Int, val col: Int)
+  
 
   val persons: List[Person] = {
     val totalInfected = population * prevalenceRate
@@ -91,7 +93,7 @@ class EpidemySimulator extends Simulator {
       //At that time, choose a random neighbor room
       //If surrounded by infected rooms, then add action of next move
       def moveAction(): Unit = {
-        val moveInDay = (random * moveInTime).toInt + 1
+        val moveInDay = randomBelow(moveInTime) + 1
         afterDelay(moveInDay) {
           if (!dead) {
             val randomNeighbor = unInfectedRoom(neighbors(Room(row, col)))
@@ -123,10 +125,7 @@ class EpidemySimulator extends Simulator {
     val right = (room.col + 1) % roomRows
     val top = (room.row - 1 + roomColumns) % roomColumns
     val bottom = (room.row + 1) % roomColumns
-    for {
-      c <- List(left, right)
-      r <- List(top, bottom)
-    } yield Room(r, c)
+    List(left, right).map(col => Room(room.row, col)) ::: List(top, bottom).map(row => Room(row, room.col))
   }
   
   //Randomly return a not infected room, None if no such room

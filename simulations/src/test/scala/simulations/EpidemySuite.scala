@@ -1,7 +1,6 @@
 package simulations
 
 import org.scalatest.FunSuite
-
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
 
@@ -101,4 +100,13 @@ class EpidemySuite extends FunSuite {
 	  }
 	  assert(infectedTimes > 0, "A person should get infected according to the transmissibility rate when he moves into a room with an infectious person")
   }
+  
+  test("get neighbours") {
+    val es = new EpidemySimulator
+    val r = Room(0, 3)
+    val neighbors =  es.neighbors(r)
+    assert(neighbors === List(Room(0,2), Room(0,4), Room(7,3), Room(1,3)))
+  }
+  
+  
 }
