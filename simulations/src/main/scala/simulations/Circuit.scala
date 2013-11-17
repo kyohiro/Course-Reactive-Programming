@@ -85,25 +85,25 @@ abstract class CircuitSimulator extends Simulator {
         inverter(inv, o)
       } 
       //when there is one control and two outputs, use 1to2 demux
-      case (c :: Nil, List(o1, o2)) => {
-        demux1to2(in, c, o1, o2)
+      case (c :: Nil, List(o1, o0)) => {
+        demux1to2(in, c, o1, o0)
       }
       //when there are more, build from multiple 1to2 demux
       case (c1 :: cw, o) => { 
-        val w1, w2 = new Wire
-        demux1to2(in, c1, w1, w2)
-        demux(w1, cw, o.take(o.length/2))
-        demux(w2, cw, o.drop(o.length/2))
+        val w1, w0 = new Wire
+        demux1to2(in, c1, w1, w0)
+        demux(w1, cw, o.take(o.length/2)) //half high bits
+        demux(w0, cw, o.drop(o.length/2)) //half low bits
       }
       case _ => println("cannot handle such cases")
     }
   }
 
-  def demux1to2(in: Wire, c: Wire, o1: Wire, o2: Wire) {
+  def demux1to2(in: Wire, c: Wire, o1: Wire, o0: Wire) {
     val inv = new Wire
     inverter(c, inv)
-    andGate(in, inv, o1)
-    andGate(in, c, o2)
+    andGate(in, inv, o0)
+    andGate(in, c, o1)
   }
 }
 
