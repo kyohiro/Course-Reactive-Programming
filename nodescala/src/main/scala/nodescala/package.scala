@@ -16,7 +16,7 @@ package object nodescala {
 
     /** Returns a future that is always completed with `value`.
      */
-    def always[T](value: T): Future[T] = future(value) 
+    def always[T](value: T): Future[T] = future(value)  
 
     /** Returns a future that is never completed.
      *
@@ -30,9 +30,9 @@ package object nodescala {
      *  If any of the futures `fs` fails, the resulting future also fails.
      */
     def all[T](fs: List[Future[T]]): Future[List[T]] = {
-      val successful = Promise[List[T]]
-      successful.success(Nil)
-      fs.foldRight(successful.future) {
+      val p = Promise[List[T]]
+      p.success(Nil)
+      fs.foldRight(p.future) {
         (f, acc) => for{ x <- f; xs <- acc } yield x :: xs
       }
     } 
@@ -52,12 +52,12 @@ package object nodescala {
         x: Try[T] => if (!p.isCompleted) p.tryComplete(x)
       })
       p.future
-    }
+    } //If using complete, the promise will throw illegalStateException when a future is already finished
 
     /** Returns a future with a unit value that is completed after time `t`.
      */
-    def delay(t: Duration): Future[Unit] = future{
-      blocking(Thread.sleep(t.toMillis))
+    def delay(t: Duration): Future[Unit] = future {
+      blocking(Thread.sleep(t.toMillis))   //Might have a better way than Thread.sleep
     }
 
     /** Completes this future with user input.
@@ -70,7 +70,7 @@ package object nodescala {
      */
     def run()(f: CancellationToken => Future[Unit]): Subscription = {
       val ts = CancellationTokenSource()
-      f(ts.cancellationToken)
+      f(ts.cancellationToken) //Use the cancellation token in ts to run with the future
       ts
     } 
 
