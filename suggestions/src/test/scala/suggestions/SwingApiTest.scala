@@ -87,4 +87,21 @@ class SwingApiTest extends FunSuite {
 
     assert(observed == Seq("T", "Tu", "Tur", "Turi", "Turin", "Turing"), observed)
   }
+  
+  test("SwingAPI should emit click events to the observable") {
+    val button = new swingApi.Button
+    val clicks = button.clicks
+    
+    val observed = mutable.Buffer[swingApi.Button]()
+    val sub = clicks.subscribe {
+      observed += _
+    }
+    
+    button.click
+    button.click
+    button.click
+    button.click
+    
+    assert(observed == Seq(button, button, button, button), observed)
+  }
 }
