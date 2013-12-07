@@ -51,7 +51,7 @@ object BinaryTreeSet {
 }
 
 
-class BinaryTreeSet extends Actor {
+class BinaryTreeSet extends Actor with Stash{
   import BinaryTreeSet._
   import BinaryTreeNode._
 
@@ -59,26 +59,29 @@ class BinaryTreeSet extends Actor {
 
   var root = createRoot
 
-  var pendingQueue = Queue.empty[Operation]
-
   def receive = normal
   
   /** Accepts `Operation` and `GC` messages. */
   val normal: Receive = {
-    case GC => {
-      val newRoot = createRoot
-      root ! CopyTo(newRoot)
-      context.become(garbageCollecting(newRoot))
-    }
     case operation: Operation => root ! operation
+    case GC => val newRoot = createRoot
+               root ! CopyTo(newRoot)
+               context.become(garbageCollecting(newRoot))
   }
      
   /** Handles messages while garbage collection is performed.
     * `newRoot` is the root of the new binary tree where we want to copy
     * all non-removed elements into.
     */
-  def garbageCollecting(newRoot: ActorRef): Receive = ???
-
+  def garbageCollecting(newRoot: ActorRef): Receive = {
+    case message: Operation => stash() //Leverage akka stash...
+    case CopyFinished => {
+      root ! PoisonPill
+      root = newRoot
+      context.become(normal)
+      unstashAll()
+    }
+  }
 }
 
 object BinaryTreeNode {
@@ -135,14 +138,24 @@ class BinaryTreeNode(val elem: Int, initiallyRemoved: Boolean) extends Actor {
         requester ! OperationFinished(id)
       }
     }
-    case _ => ???
+    case CopyTo(newRoot) => {
+      if (!removed) newRoot ! Insert(self, elem, elem) //Use elem for id, as it's supposed to be distinct
+      subtrees.values.foreach(_ ! CopyTo(newRoot))
+      context.become(copying(subtrees.values.toSet, insertConfirmed=removed))
+    }
   }
 
   /** `expected` is the set of ActorRefs whose replies we are waiting for,
     * `insertConfirmed` tracks whether the copy of this node to the new tree has been confirmed.
     */
-  def copying(expected: Set[ActorRef], insertConfirmed: Boolean): Receive = ???
-  
-  
-  
+  def copying(expected: Set[ActorRef], insertConfirmed: Boolean): Receive = {
+    if (expected.isEmpty && insertConfirmed) {
+      context.parent ! CopyFinished
+      normal
+    }
+    else {
+      case OperationFinished(id) => if (id == elem) context.become(copying(expected, insertConfirmed = true))
+      case CopyFinished => context.become(copying(expected - sender, insertConfirmed))
+    }
+  } 
 }
