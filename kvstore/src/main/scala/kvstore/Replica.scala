@@ -111,26 +111,24 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
         checkAckStatus(id)
       }
     }
-    case replicas:Replicas =>
+    case Replicas(replicas) =>
       var updatedReplicators = Set.empty[ActorRef]
-      secondaries = replicas.replicas.foldLeft(Map.empty[ActorRef, ActorRef]){(res, replica)=>
-        if (!replica.equals(self)){
+      var updatedSecondaries = Map.empty[ActorRef, ActorRef]
+      replicas.map{replica =>
+        if(!replica.equals(self)) {
           val replicator = secondaries.getOrElse(replica, context.actorOf(Props(classOf[Replicator], replica)))
-
-          if (!secondaries.contains(replica)){
-            kv.foreach{entry=>
-              replicator ! Replicate(entry._1, Some(entry._2), nextSeq)
-            }
+          if (!secondaries.contains(replica)) {
+            kv.foreach{entry => replicator ! Replicate(entry._1, Some(entry._2), nextSeq)}
           }
+          
           updatedReplicators += replicator
-          replicators -= replicator
-          res + (replica -> replicator)
-        }
-        else
-          res
+          replicators -= replicator  //Remove active ones from original set
+          updatedSecondaries += (replica -> replicator)
+        } 
       }
-      replicators.foreach(context.stop)
+      replicators.foreach(context.stop) //Stop those left in original set
       replicators = updatedReplicators
+      secondaries = updatedSecondaries
       notAcked.keySet.foreach(checkAckStatus)
   }
  
