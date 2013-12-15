@@ -60,7 +60,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   // the current set of replicators
   var replicators = Set.empty[ActorRef]
   //persisting list that hasn't been acked
-  var persisting = Map.empty[Long, (ActorRef, Persist)]
+  var notAcked = Map.empty[Long, (ActorRef, Option[Persist], Set[ActorRef])]
   
   var expectedVersion = 0L
   var _seqCounter = 0L
@@ -88,23 +88,29 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       sender ! GetResult(key, kv.get(key), id)
     }
     case RetryPersist => {
-      persisting.foreach(entry => {
-        val (_, (_, command)) = entry
-        persistence ! command
+      notAcked.foreach(entry => {
+        val (_, (_, command, _)) = entry
+        command.map(persistence ! _)
       })
     }
     case Persisted(key, id) => {
-      replicators.foreach(_  ! Replicate(key, kv.get(key), id))
-      persisting.get(id).map(entry => {
-        entry._1 ! OperationAck(id)
-      })
-      persisting -= id
+      notAcked.get(id).map{entry =>
+        val (client, persist, replicas) = entry
+        notAcked += id -> (client, None, replicas)
+      }
+      checkAckStatus(id)
     }
     case TimeOut(id) => {
-      persisting.get(id).map(entry => {
+      notAcked.get(id).map(entry => {
         entry._1 ! OperationFailed(id) 
       })
-      persisting -= id
+      notAcked -= id
+    }
+    case Replicated(key, id) => {
+      notAcked.get(id).map{entry =>
+        notAcked += id -> (entry._1, entry._2, entry._3 + sender) 
+      }
+      checkAckStatus(id)
     }
     case Replicas(replicas) => {
       var newReplicators = Set.empty[ActorRef]
@@ -119,6 +125,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       })
       replicators.foreach(context.stop)
       replicators = newReplicators
+      notAcked.map(entry => checkAckStatus(entry._1))
     }
   }
   
@@ -135,28 +142,39 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       else if (seq < expectedVersion) sender ! SnapshotAck(key, seq)
     }
     case RetryPersist => {
-      persisting.foreach(entry => {
-        val (_, (_, command)) = entry
-        persistence ! command
+      notAcked.foreach(entry => {
+        val (_, (_, command, _)) = entry
+        command.map(persistence ! _)
       })
     }
     case Persisted(key, id) => {
-      persisting.get(id).map(entry => {
+      notAcked.get(id).map(entry => {
         expectedVersion += 1
         entry._1 ! SnapshotAck(key, id)
       })
-      persisting -= id
+      notAcked -= id
     }
   }
   
   def doPersist(id: Long, key: String, valueOpt: Option[String]) = {
     val command = Persist(key, valueOpt, id)
-    persisting += id -> (sender, command) 
+    notAcked += id -> (sender, Some(command), Set.empty[ActorRef]) 
     persistence ! command
   }
   
   def doPersistPrimary(id: Long, key: String, valueOpt: Option[String]) = {
     doPersist(id, key, valueOpt)
+    replicators.foreach(_  ! Replicate(key, kv.get(key), id))
     context.system.scheduler.scheduleOnce(1000 millis, context.self, TimeOut(id))
+  }
+  
+  def checkAckStatus(id: Long) = {
+    notAcked.get(id).map{entry =>
+      val (client, persist, reps) = entry
+      persist match {
+        case None if replicators.forall(reps.contains(_)) => client ! OperationAck(id); notAcked -= id
+        case _ =>
+      } 
+    }  
   }
 }

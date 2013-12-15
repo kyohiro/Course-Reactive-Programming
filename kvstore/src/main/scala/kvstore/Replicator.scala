@@ -51,6 +51,10 @@ class Replicator(val replica: ActorRef) extends Actor {
       replica ! Snapshot(key, valueOpt, id)
     }
     case SnapshotAck(key, seq) => {
+      acks.get(seq).map{entry =>
+        val (primary, _) = entry
+        primary ! Replicated(key, seq)
+      }
       acks -= seq 
     }
   }
