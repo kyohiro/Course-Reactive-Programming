@@ -101,6 +101,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       checkAckStatus(id)
     }
     case TimeOut(id) => {
+      checkAckStatus(id)
       notAcked.get(id).map(entry => {
         entry._1 ! OperationFailed(id) 
       })
@@ -125,7 +126,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       })
       replicators.foreach(context.stop)
       replicators = newReplicators
-      notAcked.map(entry => checkAckStatus(entry._1))
+      notAcked.keySet.foreach(checkAckStatus)
     }
   }
   
