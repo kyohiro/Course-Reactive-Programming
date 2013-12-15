@@ -84,9 +84,7 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       kv -= key 
       doPersistPrimary(id, key, None)
     }
-    case Get(key, id) => {
-      sender ! GetResult(key, kv.get(key), id)
-    }
+    case Get(key, id) => sender ! GetResult(key, kv.get(key), id)
     case RetryPersist => {
       notAcked.foreach(entry => {
         val (_, (_, command, _)) = entry
@@ -97,8 +95,8 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       notAcked.get(id).map{entry =>
         val (client, persist, replicas) = entry
         notAcked += id -> (client, None, replicas)
+        checkAckStatus(id)
       }
-      checkAckStatus(id)
     }
     case TimeOut(id) => {
       checkAckStatus(id)
@@ -110,26 +108,32 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
     case Replicated(key, id) => {
       notAcked.get(id).map{entry =>
         notAcked += id -> (entry._1, entry._2, entry._3 + sender) 
+        checkAckStatus(id)
       }
-      checkAckStatus(id)
     }
-    case Replicas(replicas) => {
-      var newReplicators = Set.empty[ActorRef]
-      secondaries = Map.empty[ActorRef, ActorRef]
-      replicas.foreach(replica => {
-        if (replica != self) {
-          val replicator = context.actorOf(Replicator.props(replica))
-          newReplicators += replicator
-          secondaries += replica -> replicator
-          kv.foreach(entry => replicator ! Replicate(entry._1, Some(entry._2), nextSeq))
+    case replicas:Replicas =>
+      var updatedReplicators = Set.empty[ActorRef]
+      secondaries = replicas.replicas.foldLeft(Map.empty[ActorRef, ActorRef]){(res, replica)=>
+        if (!replica.equals(self)){
+          val replicator = secondaries.getOrElse(replica, context.actorOf(Props(classOf[Replicator], replica)))
+
+          if (!secondaries.contains(replica)){
+            kv.foreach{entry=>
+              replicator ! Replicate(entry._1, Some(entry._2), nextSeq)
+            }
+          }
+          updatedReplicators += replicator
+          replicators -= replicator
+          res + (replica -> replicator)
         }
-      })
+        else
+          res
+      }
       replicators.foreach(context.stop)
-      replicators = newReplicators
+      replicators = updatedReplicators
       notAcked.keySet.foreach(checkAckStatus)
-    }
   }
-  
+ 
   val replica: Receive = {
     case Get(key, id) => sender ! GetResult(key, kv.get(key), id)
     case Snapshot(key, valueOpt, seq) => {
@@ -142,18 +146,19 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
       } 
       else if (seq < expectedVersion) sender ! SnapshotAck(key, seq)
     }
+    case Persisted(key, id) => {
+      notAcked.get(id).map(entry => {
+        val (requester, persist, _) = entry
+        persist.map(cmd => requester ! SnapshotAck(key, cmd.id))
+        expectedVersion += 1
+      })
+      notAcked -= id
+    }
     case RetryPersist => {
       notAcked.foreach(entry => {
         val (_, (_, command, _)) = entry
         command.map(persistence ! _)
       })
-    }
-    case Persisted(key, id) => {
-      notAcked.get(id).map(entry => {
-        expectedVersion += 1
-        entry._1 ! SnapshotAck(key, id)
-      })
-      notAcked -= id
     }
   }
   

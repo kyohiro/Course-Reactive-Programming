@@ -39,24 +39,23 @@ class Replicator(val replica: ActorRef) extends Actor {
   }
   
   def receive: Receive = {
+    case rep @ Replicate(key, valueOpt, id) => {
+      val seq = nextSeq
+      acks += seq -> (sender, rep) 
+      replica ! Snapshot(key, valueOpt, seq)
+    }
+    case SnapshotAck(key, seq) => {
+      acks.get(seq).map{entry =>
+        val (primary, command) = entry
+        primary ! Replicated(key, command.id)
+      }
+      acks -= seq 
+    }
     case RetrySnap => {
       acks.foreach(entry => {
         val (seq, (primary, replicate)) = entry
         replica ! Snapshot(replicate.key, replicate.valueOption, seq)
       })
     }
-    case rep @ Replicate(key, valueOpt, id) => {
-      val seq = nextSeq
-      acks += seq -> (sender, rep) 
-      replica ! Snapshot(key, valueOpt, id)
-    }
-    case SnapshotAck(key, seq) => {
-      acks.get(seq).map{entry =>
-        val (primary, _) = entry
-        primary ! Replicated(key, seq)
-      }
-      acks -= seq 
-    }
   }
-
 }
